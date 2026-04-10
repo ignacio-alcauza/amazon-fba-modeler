@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+import json
+from datetime import datetime
 
 st.set_page_config(
     page_title="Amazon FBA — Modelo Económico",
@@ -15,6 +17,43 @@ st.set_page_config(
 # ─────────────────────────────────────────────
 if "dark_mode" not in st.session_state:
     st.session_state.dark_mode = False
+
+# ─────────────────────────────────────────────
+# PARÁMETROS POR DEFECTO (fuente única de verdad)
+# ─────────────────────────────────────────────
+DEFAULTS = {
+    "p_name":               "Mi Producto",
+    "p_coste_unitario":     4.50,
+    "p_moq":                500,
+    "p_coste_packaging":    0.30,
+    "p_coste_inspeccion":   300.0,
+    "p_coste_agente":       0.0,
+    "p_metodo_envio":       "Marítimo",
+    "p_peso_unidad":        0.45,
+    "p_coste_kg":           1.20,
+    "p_arancel_pct":        6.5,
+    "p_despacho_fijo":      200.0,
+    "p_seguro_pct":         0.50,
+    "p_costes_portuarios":  150.0,
+    "p_transporte_interno": 180.0,
+    "p_pvp":                24.99,
+    "p_comision_pct":       15.0,
+    "p_coste_fba":          3.50,
+    "p_almacenamiento_mes": 0.35,
+    "p_devolucion_pct":     5.0,
+    "p_coste_devolucion":   1.50,
+    "p_cpc":                0.55,
+    "p_conversion_pct":     12.0,
+    "p_presupuesto_diario": 15.0,
+    "p_iva_pct":            21.0,
+    "p_re_pct":             5.2,
+    "p_impuesto_pct":       25.0,
+}
+
+# Inicializar session_state con defaults solo la primera vez
+for _k, _v in DEFAULTS.items():
+    if _k not in st.session_state:
+        st.session_state[_k] = _v
 
 # ─────────────────────────────────────────────
 # RGBA HELPER
@@ -331,10 +370,15 @@ st.markdown(f"""
 # ─────────────────────────────────────────────
 col_title, col_toggle = st.columns([5, 1])
 with col_title:
+    product_name = st.session_state.get("p_name", "Mi Producto")
     st.markdown(f"""
     <div style="padding-bottom:12px">
       <div class="header-title">📦 Amazon FBA Modeler</div>
-      <div class="header-sub">Análisis de viabilidad · Importación desde China · Tiempo real</div>
+      <div class="header-sub">
+        Análisis de viabilidad · Importación desde China · Tiempo real
+        &nbsp;·&nbsp;
+        <span style="font-weight:800;color:{ACCENT}">{product_name}</span>
+      </div>
     </div>
     """, unsafe_allow_html=True)
 with col_toggle:
@@ -350,39 +394,107 @@ with col_toggle:
 with st.sidebar:
     st.markdown(f"<div class='section-label'>⚙️ Parámetros del modelo</div>", unsafe_allow_html=True)
 
+    # ── GUARDAR / CARGAR PRODUCTO ──────────────────
+    with st.expander("💾 Guardar / Cargar producto", expanded=True):
+        st.text_input("Nombre del producto", key="p_name")
+
+        # ── EXPORTAR ──
+        def build_export():
+            params = {k: st.session_state[k] for k in DEFAULTS if k != "p_name"}
+            return json.dumps({
+                "product_name": st.session_state["p_name"],
+                "version": "1.0",
+                "exported_at": datetime.now().isoformat(timespec="seconds"),
+                "params": params,
+            }, indent=2, ensure_ascii=False).encode("utf-8")
+
+        filename = f"{st.session_state['p_name'].replace(' ', '_')}.json"
+        st.download_button(
+            label="⬇️ Exportar parámetros (.json)",
+            data=build_export(),
+            file_name=filename,
+            mime="application/json",
+            use_container_width=True,
+        )
+
+        # ── IMPORTAR ──
+        uploaded = st.file_uploader(
+            "⬆️ Importar producto (.json)",
+            type="json",
+            key="uploader",
+            label_visibility="collapsed",
+        )
+        if uploaded is not None:
+            # Evitar reruns infinitos: solo procesar si es un archivo nuevo
+            if st.session_state.get("_last_loaded") != uploaded.name + str(uploaded.size):
+                try:
+                    data = json.load(uploaded)
+                    for k, v in data.get("params", {}).items():
+                        if k in DEFAULTS:
+                            st.session_state[k] = v
+                    st.session_state["p_name"] = data.get("product_name", "")
+                    st.session_state["_last_loaded"] = uploaded.name + str(uploaded.size)
+                    st.success(f"✅ Cargado: **{data.get('product_name', '')}**")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error al cargar: {e}")
+
     with st.expander("🏭 Producto", expanded=True):
-        coste_unitario   = st.slider("Coste unitario (EUR)", 0.5, 100.0, 4.50, 0.10,
+        coste_unitario   = st.slider("Coste unitario (EUR)", 0.5, 100.0,
+                               step=0.10, key="p_coste_unitario",
                                help="Precio EXW o FOB negociado con fábrica")
-        moq              = st.slider("MOQ (unidades)", 50, 10000, 500, 50)
-        coste_packaging  = st.slider("Packaging / ud (EUR)", 0.0, 5.0, 0.30, 0.05)
-        coste_inspeccion = st.slider("Inspección origen (EUR)", 0.0, 1000.0, 300.0, 25.0)
-        coste_agente     = st.slider("Agente / intermediario (EUR)", 0.0, 2000.0, 0.0, 50.0)
+        moq              = st.slider("MOQ (unidades)", 50, 10000,
+                               step=50, key="p_moq")
+        coste_packaging  = st.slider("Packaging / ud (EUR)", 0.0, 5.0,
+                               step=0.05, key="p_coste_packaging")
+        coste_inspeccion = st.slider("Inspección origen (EUR)", 0.0, 1000.0,
+                               step=25.0, key="p_coste_inspeccion")
+        coste_agente     = st.slider("Agente / intermediario (EUR)", 0.0, 2000.0,
+                               step=50.0, key="p_coste_agente")
 
     with st.expander("🚢 Logística"):
-        metodo_envio      = st.selectbox("Método de envío", ["Marítimo", "Aéreo", "Tren"])
-        peso_unidad       = st.slider("Peso / unidad (kg)", 0.05, 20.0, 0.45, 0.05)
-        coste_kg          = st.slider("Coste / kg (EUR)", 0.5, 15.0, 1.20, 0.10,
+        metodo_envio      = st.selectbox("Método de envío", ["Marítimo", "Aéreo", "Tren"],
+                              index=["Marítimo","Aéreo","Tren"].index(st.session_state["p_metodo_envio"]),
+                              key="p_metodo_envio")
+        peso_unidad       = st.slider("Peso / unidad (kg)", 0.05, 20.0,
+                              step=0.05, key="p_peso_unidad")
+        coste_kg          = st.slider("Coste / kg (EUR)", 0.5, 15.0,
+                              step=0.10, key="p_coste_kg",
                               help="Marítimo ~0.8–1.5 · Aéreo ~4–8 · Tren ~1.5–3")
-        arancel_pct       = st.slider("Aranceles (%)", 0.0, 45.0, 6.5, 0.5,
+        arancel_pct       = st.slider("Aranceles (%)", 0.0, 45.0,
+                              step=0.5, key="p_arancel_pct",
                               help="Depende del código HS")
-        despacho_fijo     = st.slider("Despacho aduanero (EUR)", 0.0, 800.0, 200.0, 25.0)
-        seguro_pct        = st.slider("Seguro transporte (%)", 0.0, 3.0, 0.50, 0.1)
-        costes_portuarios = st.slider("Costes portuarios (EUR)", 0.0, 500.0, 150.0, 25.0)
-        transporte_interno= st.slider("Transporte interno (EUR)", 0.0, 600.0, 180.0, 20.0)
+        despacho_fijo     = st.slider("Despacho aduanero (EUR)", 0.0, 800.0,
+                              step=25.0, key="p_despacho_fijo")
+        seguro_pct        = st.slider("Seguro transporte (%)", 0.0, 3.0,
+                              step=0.1, key="p_seguro_pct")
+        costes_portuarios = st.slider("Costes portuarios (EUR)", 0.0, 500.0,
+                              step=25.0, key="p_costes_portuarios")
+        transporte_interno= st.slider("Transporte interno (EUR)", 0.0, 600.0,
+                              step=20.0, key="p_transporte_interno")
 
     with st.expander("🛒 Amazon"):
-        pvp               = st.slider("PVP (EUR)", 5.0, 200.0, 24.99, 0.50)
-        comision_pct      = st.slider("Comisión Amazon (%)", 6.0, 20.0, 15.0, 0.5,
+        pvp               = st.slider("PVP (EUR)", 5.0, 200.0,
+                              step=0.50, key="p_pvp")
+        comision_pct      = st.slider("Comisión Amazon (%)", 6.0, 20.0,
+                              step=0.5, key="p_comision_pct",
                               help="Hogar/Juguetes: 15% · Electrónica: 8% · Ropa: 17%")
-        coste_fba         = st.slider("Coste FBA / ud (EUR)", 1.0, 15.0, 3.50, 0.10)
-        almacenamiento_mes= st.slider("Almacenamiento mensual (EUR)", 0.05, 2.0, 0.35, 0.05)
-        devolucion_pct    = st.slider("Tasa devoluciones (%)", 0.0, 20.0, 5.0, 0.5)
-        coste_devolucion  = st.slider("Coste por devolución (EUR)", 0.5, 10.0, 1.50, 0.25)
+        coste_fba         = st.slider("Coste FBA / ud (EUR)", 1.0, 15.0,
+                              step=0.10, key="p_coste_fba")
+        almacenamiento_mes= st.slider("Almacenamiento mensual (EUR)", 0.05, 2.0,
+                              step=0.05, key="p_almacenamiento_mes")
+        devolucion_pct    = st.slider("Tasa devoluciones (%)", 0.0, 20.0,
+                              step=0.5, key="p_devolucion_pct")
+        coste_devolucion  = st.slider("Coste por devolución (EUR)", 0.5, 10.0,
+                              step=0.25, key="p_coste_devolucion")
 
     with st.expander("📣 Marketing / PPC"):
-        cpc               = st.slider("CPC medio (EUR / clic)", 0.10, 3.0, 0.55, 0.05)
-        conversion_pct    = st.slider("Conversión (%)", 1.0, 30.0, 12.0, 0.5)
-        presupuesto_diario= st.slider("Presupuesto diario (EUR)", 1.0, 200.0, 15.0, 1.0)
+        cpc               = st.slider("CPC medio (EUR / clic)", 0.10, 3.0,
+                              step=0.05, key="p_cpc")
+        conversion_pct    = st.slider("Conversión (%)", 1.0, 30.0,
+                              step=0.5, key="p_conversion_pct")
+        presupuesto_diario= st.slider("Presupuesto diario (EUR)", 1.0, 200.0,
+                              step=1.0, key="p_presupuesto_diario")
 
     with st.expander("💶 Fiscal — Recargo de equivalencia", expanded=True):
         st.markdown(
@@ -395,11 +507,14 @@ with st.sidebar:
             f"</div>",
             unsafe_allow_html=True,
         )
-        iva_pct     = st.slider("IVA ventas / importación (%)", 0.0, 27.0, 21.0, 1.0,
+        iva_pct     = st.slider("IVA ventas / importación (%)", 0.0, 27.0,
+                        step=1.0, key="p_iva_pct",
                         help="Se aplica al PVP como ingreso y sobre (FOB+aranceles) como coste en aduanas")
-        re_pct      = st.slider("Recargo de equivalencia (%)", 0.0, 10.0, 5.2, 0.1,
+        re_pct      = st.slider("Recargo de equivalencia (%)", 0.0, 10.0,
+                        step=0.1, key="p_re_pct",
                         help="RE sobre (FOB + aranceles) en aduanas. Tipo general 2024: 5,2%")
-        impuesto_pct= st.slider("IS / IRPF (%)", 0.0, 40.0, 25.0, 1.0)
+        impuesto_pct= st.slider("IS / IRPF (%)", 0.0, 40.0,
+                        step=1.0, key="p_impuesto_pct")
 
 # ─────────────────────────────────────────────
 # CÁLCULOS CENTRALES
