@@ -302,6 +302,81 @@ st.markdown(f"""
     color: {TEXT_MUTED} !important;
   }}
 
+  /* ── Buttons (toda la app) ── */
+  button[kind="secondary"],
+  button[kind="primary"],
+  [data-testid="stBaseButton-secondary"] button,
+  [data-testid="stBaseButton-primary"] button,
+  [data-testid="stDownloadButton"] button,
+  .stButton > button,
+  .stDownloadButton > button {{
+    background: {ACCENT} !important;
+    color: #ffffff !important;
+    border: none !important;
+    border-radius: 10px !important;
+    font-weight: 700 !important;
+    font-size: 0.88rem !important;
+    font-family: 'Nunito', sans-serif !important;
+    padding: 8px 16px !important;
+    cursor: pointer !important;
+    transition: opacity 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease !important;
+    box-shadow: 0 3px 12px {rgba(ACCENT, 0.35)} !important;
+  }}
+  .stButton > button:hover,
+  .stDownloadButton > button:hover {{
+    opacity: 0.88 !important;
+    transform: translateY(-1px) !important;
+    box-shadow: 0 6px 18px {rgba(ACCENT, 0.45)} !important;
+  }}
+
+  /* ── Text inputs ── */
+  [data-testid="stTextInput"] input {{
+    background: {BG2} !important;
+    color: {TEXT} !important;
+    border: 1px solid {CARD_BORD} !important;
+    border-radius: 10px !important;
+    font-family: 'Nunito', sans-serif !important;
+    font-size: 0.92rem !important;
+    font-weight: 600 !important;
+    padding: 8px 12px !important;
+  }}
+  [data-testid="stTextInput"] input:focus {{
+    border-color: {ACCENT} !important;
+    box-shadow: 0 0 0 3px {rgba(ACCENT, 0.2)} !important;
+    outline: none !important;
+  }}
+  [data-testid="stTextInput"] label {{
+    color: {TEXT_MUTED} !important;
+    font-size: 0.82rem !important;
+    font-weight: 700 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.06em !important;
+  }}
+
+  /* ── File uploader (toda la app) ── */
+  [data-testid="stFileUploader"] {{
+    background: {BG2} !important;
+    border: 2px dashed {CARD_BORD} !important;
+    border-radius: 12px !important;
+    padding: 4px 8px !important;
+  }}
+  [data-testid="stFileUploaderDropzone"] {{
+    background: transparent !important;
+  }}
+  [data-testid="stFileUploader"] label,
+  [data-testid="stFileUploader"] span,
+  [data-testid="stFileUploader"] p,
+  [data-testid="stFileUploader"] small {{
+    color: {TEXT} !important;
+    font-family: 'Nunito', sans-serif !important;
+  }}
+  [data-testid="stFileUploaderDropzone"] button {{
+    background: {CARD_BG} !important;
+    color: {ACCENT} !important;
+    border: 1px solid {ACCENT} !important;
+    box-shadow: none !important;
+  }}
+
   /* ── Alerts ── */
   [data-testid="stAlert"] {{
     border-radius: 14px !important;
@@ -389,55 +464,80 @@ with col_toggle:
         st.rerun()
 
 # ─────────────────────────────────────────────
-# SIDEBAR — INPUTS
+# BARRA GUARDAR / CARGAR — visible en contenido principal
 # ─────────────────────────────────────────────
-with st.sidebar:
-    st.markdown(f"<div class='section-label'>⚙️ Parámetros del modelo</div>", unsafe_allow_html=True)
+def build_export():
+    params = {k: st.session_state[k] for k in DEFAULTS if k != "p_name"}
+    return json.dumps({
+        "product_name": st.session_state["p_name"],
+        "version": "1.0",
+        "exported_at": datetime.now().isoformat(timespec="seconds"),
+        "params": params,
+    }, indent=2, ensure_ascii=False).encode("utf-8")
 
-    # ── GUARDAR / CARGAR PRODUCTO ──────────────────
-    with st.expander("💾 Guardar / Cargar producto", expanded=True):
-        st.text_input("Nombre del producto", key="p_name")
+with st.container():
+    st.markdown(
+        f"<div style='background:{CARD_BG};border:1px solid {CARD_BORD};border-radius:14px;"
+        f"padding:14px 20px;margin-bottom:16px;display:flex;align-items:center;gap:12px'>",
+        unsafe_allow_html=True,
+    )
+    bar_c1, bar_c2, bar_c3, bar_c4 = st.columns([3, 2, 2, 3])
 
-        # ── EXPORTAR ──
-        def build_export():
-            params = {k: st.session_state[k] for k in DEFAULTS if k != "p_name"}
-            return json.dumps({
-                "product_name": st.session_state["p_name"],
-                "version": "1.0",
-                "exported_at": datetime.now().isoformat(timespec="seconds"),
-                "params": params,
-            }, indent=2, ensure_ascii=False).encode("utf-8")
+    with bar_c1:
+        st.text_input("📦 Nombre del producto", key="p_name", label_visibility="visible")
 
-        filename = f"{st.session_state['p_name'].replace(' ', '_')}.json"
+    with bar_c2:
+        st.markdown("<div style='padding-top:28px'></div>", unsafe_allow_html=True)
+        filename = f"{(st.session_state.get('p_name') or 'producto').replace(' ', '_')}.json"
         st.download_button(
-            label="⬇️ Exportar parámetros (.json)",
+            label="⬇️ Exportar .json",
             data=build_export(),
             file_name=filename,
             mime="application/json",
             use_container_width=True,
+            key="btn_export",
         )
 
-        # ── IMPORTAR ──
-        uploaded = st.file_uploader(
-            "⬆️ Importar producto (.json)",
-            type="json",
-            key="uploader",
-            label_visibility="collapsed",
-        )
-        if uploaded is not None:
-            # Evitar reruns infinitos: solo procesar si es un archivo nuevo
-            if st.session_state.get("_last_loaded") != uploaded.name + str(uploaded.size):
-                try:
-                    data = json.load(uploaded)
-                    for k, v in data.get("params", {}).items():
-                        if k in DEFAULTS:
-                            st.session_state[k] = v
-                    st.session_state["p_name"] = data.get("product_name", "")
-                    st.session_state["_last_loaded"] = uploaded.name + str(uploaded.size)
-                    st.success(f"✅ Cargado: **{data.get('product_name', '')}**")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Error al cargar: {e}")
+    with bar_c3:
+        st.markdown("<div style='padding-top:28px'></div>", unsafe_allow_html=True)
+        if st.button("⬆️ Importar .json", use_container_width=True, key="btn_open_import"):
+            st.session_state["show_import"] = True
+
+    with bar_c4:
+        if st.session_state.get("show_import"):
+            uploaded = st.file_uploader(
+                "Selecciona un archivo .json",
+                type="json",
+                key="uploader",
+            )
+            if uploaded is not None:
+                if st.session_state.get("_last_loaded") != uploaded.name + str(uploaded.size):
+                    try:
+                        data = json.load(uploaded)
+                        for k, v in data.get("params", {}).items():
+                            if k in DEFAULTS:
+                                st.session_state[k] = v
+                        st.session_state["p_name"] = data.get("product_name", "")
+                        st.session_state["_last_loaded"] = uploaded.name + str(uploaded.size)
+                        st.session_state["show_import"] = False
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error al cargar: {e}")
+        else:
+            if st.session_state.get("_last_loaded"):
+                st.markdown(
+                    f"<div style='padding-top:30px;font-size:0.85rem;color:{SUCCESS};font-weight:700'>"
+                    f"✅ {st.session_state.get('p_name','')}</div>",
+                    unsafe_allow_html=True,
+                )
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────
+# SIDEBAR — INPUTS
+# ─────────────────────────────────────────────
+with st.sidebar:
+    st.markdown(f"<div class='section-label'>⚙️ Parámetros del modelo</div>", unsafe_allow_html=True)
 
     with st.expander("🏭 Producto", expanded=True):
         coste_unitario   = st.slider("Coste unitario (EUR)", 0.5, 100.0,
