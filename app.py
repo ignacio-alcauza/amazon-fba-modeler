@@ -3,7 +3,35 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import json
+import urllib.request
 from datetime import datetime
+
+@st.cache_data(ttl=3600)
+def fetch_fx_rates():
+    """Obtiene CNY→EUR y USD→EUR desde frankfurter.app. Cachea 1 hora."""
+    try:
+        url = "https://api.frankfurter.app/latest?from=EUR&to=CNY,USD"
+        with urllib.request.urlopen(url, timeout=6) as r:
+            data = json.loads(r.read())
+        eur_to_cny = data["rates"]["CNY"]
+        eur_to_usd = data["rates"]["USD"]
+        return {
+            "cny_eur": round(1 / eur_to_cny, 6),
+            "usd_eur": round(1 / eur_to_usd, 6),
+            "eur_cny": round(eur_to_cny, 4),
+            "eur_usd": round(eur_to_usd, 4),
+            "date":    data["date"],
+            "source":  "frankfurter.app",
+        }
+    except Exception:
+        return {
+            "cny_eur": 0.1284,
+            "usd_eur": 0.9187,
+            "eur_cny": 7.788,
+            "eur_usd": 1.088,
+            "date":    "fallback",
+            "source":  "fallback",
+        }
 
 st.set_page_config(
     page_title="Amazon FBA — Modelo Económico",
@@ -23,28 +51,32 @@ if "dark_mode" not in st.session_state:
 # ─────────────────────────────────────────────
 DEFAULTS = {
     "p_name":               "Mi Producto",
-    "p_coste_unitario":     4.50,
+    # ── Producto en CNY ──────────────────────────
+    "p_coste_unitario":     35.0,    # ¥ CNY
     "p_moq":                500,
-    "p_coste_packaging":    0.30,
-    "p_coste_inspeccion":   300.0,
-    "p_coste_agente":       0.0,
+    "p_coste_packaging":    2.5,     # ¥ CNY
+    "p_coste_inspeccion":   2400.0,  # ¥ CNY
+    "p_coste_agente":       0.0,     # ¥ CNY
+    # ── Logística en USD ─────────────────────────
     "p_metodo_envio":       "Marítimo",
-    "p_peso_unidad":        0.45,
-    "p_coste_kg":           1.20,
-    "p_arancel_pct":        6.5,
-    "p_despacho_fijo":      200.0,
-    "p_seguro_pct":         0.50,
-    "p_costes_portuarios":  150.0,
-    "p_transporte_interno": 180.0,
-    "p_pvp":                24.99,
-    "p_comision_pct":       15.0,
-    "p_coste_fba":          3.50,
-    "p_almacenamiento_mes": 0.35,
-    "p_devolucion_pct":     5.0,
-    "p_coste_devolucion":   1.50,
-    "p_cpc":                0.55,
-    "p_conversion_pct":     12.0,
-    "p_presupuesto_diario": 15.0,
+    "p_peso_unidad":        0.45,    # kg (sin divisa)
+    "p_coste_kg":           1.30,    # $ USD / kg
+    "p_arancel_pct":        6.5,     # % (sin divisa)
+    "p_despacho_fijo":      220.0,   # $ USD
+    "p_seguro_pct":         0.50,    # % (sin divisa)
+    "p_costes_portuarios":  165.0,   # $ USD
+    "p_transporte_interno": 195.0,   # $ USD
+    # ── Amazon / PPC / Ventas en EUR ─────────────
+    "p_pvp":                24.99,   # € EUR
+    "p_comision_pct":       15.0,    # %
+    "p_coste_fba":          3.50,    # € EUR
+    "p_almacenamiento_mes": 0.35,    # € EUR
+    "p_devolucion_pct":     5.0,     # %
+    "p_coste_devolucion":   1.50,    # € EUR
+    "p_cpc":                0.55,    # € EUR
+    "p_conversion_pct":     12.0,    # %
+    "p_presupuesto_diario": 15.0,    # € EUR
+    # ── Fiscal ───────────────────────────────────
     "p_iva_pct":            21.0,
     "p_re_pct":             5.2,
     "p_impuesto_pct":       25.0,
@@ -464,6 +496,47 @@ with col_toggle:
         st.rerun()
 
 # ─────────────────────────────────────────────
+# TIPOS DE CAMBIO EN TIEMPO REAL
+# ─────────────────────────────────────────────
+fx = fetch_fx_rates()
+cny_eur = fx["cny_eur"]
+usd_eur = fx["usd_eur"]
+fx_is_live = fx["source"] != "fallback"
+fx_badge = (
+    f"<span style='background:{rgba(ACCENT2,0.18)};color:{ACCENT2};"
+    f"border-radius:99px;padding:2px 10px;font-size:0.75rem;font-weight:700'>🟢 En directo</span>"
+    if fx_is_live else
+    f"<span style='background:{rgba(WARNING,0.18)};color:{WARNING};"
+    f"border-radius:99px;padding:2px 10px;font-size:0.75rem;font-weight:700'>⚠️ Valores de respaldo</span>"
+)
+st.markdown(f"""
+<div style="background:{CARD_BG};border:1px solid {CARD_BORD};border-radius:14px;
+            padding:12px 20px;margin-bottom:14px;display:flex;align-items:center;
+            gap:28px;flex-wrap:wrap">
+  <div style="font-size:0.75rem;font-weight:800;text-transform:uppercase;
+              letter-spacing:0.08em;color:{TEXT_MUTED}">
+    💱 Tipos de cambio
+  </div>
+  <div style="display:flex;align-items:baseline;gap:6px">
+    <span style="font-size:1.35rem;font-weight:800;color:{TEXT}">
+      1 ¥ = {cny_eur:.4f} €
+    </span>
+    <span style="font-size:0.8rem;color:{TEXT_MUTED}">CNY → EUR</span>
+  </div>
+  <div style="display:flex;align-items:baseline;gap:6px">
+    <span style="font-size:1.35rem;font-weight:800;color:{TEXT}">
+      1 $ = {usd_eur:.4f} €
+    </span>
+    <span style="font-size:0.8rem;color:{TEXT_MUTED}">USD → EUR</span>
+  </div>
+  <div style="display:flex;align-items:baseline;gap:6px">
+    <span style="font-size:0.85rem;color:{TEXT_MUTED}">Fecha: {fx['date']}</span>
+  </div>
+  <div style="margin-left:auto">{fx_badge}</div>
+</div>
+""", unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────
 # BARRA GUARDAR / CARGAR — visible en contenido principal
 # ─────────────────────────────────────────────
 def build_export():
@@ -539,39 +612,39 @@ with st.container():
 with st.sidebar:
     st.markdown(f"<div class='section-label'>⚙️ Parámetros del modelo</div>", unsafe_allow_html=True)
 
-    with st.expander("🏭 Producto", expanded=True):
-        coste_unitario   = st.slider("Coste unitario (EUR)", 0.5, 100.0,
-                               step=0.10, key="p_coste_unitario",
-                               help="Precio EXW o FOB negociado con fábrica")
+    with st.expander("🏭 Producto — ¥ CNY", expanded=True):
+        coste_unitario   = st.slider("Coste unitario (¥ CNY)", 1.0, 1000.0,
+                               step=0.5, key="p_coste_unitario",
+                               help="Precio EXW o FOB de fábrica en yuanes")
         moq              = st.slider("MOQ (unidades)", 50, 10000,
                                step=50, key="p_moq")
-        coste_packaging  = st.slider("Packaging / ud (EUR)", 0.0, 5.0,
-                               step=0.05, key="p_coste_packaging")
-        coste_inspeccion = st.slider("Inspección origen (EUR)", 0.0, 1000.0,
-                               step=25.0, key="p_coste_inspeccion")
-        coste_agente     = st.slider("Agente / intermediario (EUR)", 0.0, 2000.0,
-                               step=50.0, key="p_coste_agente")
+        coste_packaging  = st.slider("Packaging / ud (¥ CNY)", 0.0, 50.0,
+                               step=0.5, key="p_coste_packaging")
+        coste_inspeccion = st.slider("Inspección origen (¥ CNY)", 0.0, 10000.0,
+                               step=100.0, key="p_coste_inspeccion")
+        coste_agente     = st.slider("Agente / intermediario (¥ CNY)", 0.0, 20000.0,
+                               step=100.0, key="p_coste_agente")
 
-    with st.expander("🚢 Logística"):
+    with st.expander("🚢 Logística — $ USD"):
         metodo_envio      = st.selectbox("Método de envío", ["Marítimo", "Aéreo", "Tren"],
                               index=["Marítimo","Aéreo","Tren"].index(st.session_state["p_metodo_envio"]),
                               key="p_metodo_envio")
         peso_unidad       = st.slider("Peso / unidad (kg)", 0.05, 20.0,
                               step=0.05, key="p_peso_unidad")
-        coste_kg          = st.slider("Coste / kg (EUR)", 0.5, 15.0,
+        coste_kg          = st.slider("Flete / kg ($ USD)", 0.5, 16.0,
                               step=0.10, key="p_coste_kg",
-                              help="Marítimo ~0.8–1.5 · Aéreo ~4–8 · Tren ~1.5–3")
+                              help="Marítimo ~$0.8–2 · Aéreo ~$5–12 · Tren ~$1.5–3")
         arancel_pct       = st.slider("Aranceles (%)", 0.0, 45.0,
                               step=0.5, key="p_arancel_pct",
-                              help="Depende del código HS")
-        despacho_fijo     = st.slider("Despacho aduanero (EUR)", 0.0, 800.0,
-                              step=25.0, key="p_despacho_fijo")
+                              help="Depende del código HS. Se calcula sobre valor EUR")
+        despacho_fijo     = st.slider("Despacho aduanero ($ USD)", 0.0, 1000.0,
+                              step=10.0, key="p_despacho_fijo")
         seguro_pct        = st.slider("Seguro transporte (%)", 0.0, 3.0,
                               step=0.1, key="p_seguro_pct")
-        costes_portuarios = st.slider("Costes portuarios (EUR)", 0.0, 500.0,
-                              step=25.0, key="p_costes_portuarios")
-        transporte_interno= st.slider("Transporte interno (EUR)", 0.0, 600.0,
-                              step=20.0, key="p_transporte_interno")
+        costes_portuarios = st.slider("Costes portuarios ($ USD)", 0.0, 600.0,
+                              step=10.0, key="p_costes_portuarios")
+        transporte_interno= st.slider("Transporte interno ($ USD)", 0.0, 800.0,
+                              step=10.0, key="p_transporte_interno")
 
     with st.expander("🛒 Amazon"):
         pvp               = st.slider("PVP (EUR)", 5.0, 200.0,
@@ -617,27 +690,45 @@ with st.sidebar:
                         step=1.0, key="p_impuesto_pct")
 
 # ─────────────────────────────────────────────
-# CÁLCULOS CENTRALES
+# CÁLCULOS CENTRALES  (todo convertido a EUR)
 # ─────────────────────────────────────────────
-coste_prod_ud = coste_unitario + coste_packaging + (coste_inspeccion / moq) + (coste_agente / moq)
 
-flete_total           = peso_unidad * coste_kg * moq
-valor_fob_lote        = coste_unitario * moq
-arancel_total         = valor_fob_lote * (arancel_pct / 100)
-seguro_total          = valor_fob_lote * (seguro_pct / 100)
-costes_fijos_logistica= despacho_fijo + costes_portuarios + transporte_interno
+# ── Conversión de divisa ─────────────────────────────
+# Producto: CNY → EUR
+coste_unitario_eur   = coste_unitario   * cny_eur
+coste_packaging_eur  = coste_packaging  * cny_eur
+coste_inspeccion_eur = coste_inspeccion * cny_eur
+coste_agente_eur     = coste_agente     * cny_eur
+
+# Logística: USD → EUR
+coste_kg_eur           = coste_kg           * usd_eur
+despacho_fijo_eur      = despacho_fijo      * usd_eur
+costes_portuarios_eur  = costes_portuarios  * usd_eur
+transporte_interno_eur = transporte_interno * usd_eur
+
+# ── Producto en EUR ───────────────────────────────────
+coste_prod_ud = (coste_unitario_eur + coste_packaging_eur
+                 + (coste_inspeccion_eur / moq) + (coste_agente_eur / moq))
+
+# ── Logística en EUR ──────────────────────────────────
+flete_total            = peso_unidad * coste_kg_eur * moq
+valor_fob_lote         = coste_unitario_eur * moq          # base aranceles (EUR)
+arancel_total          = valor_fob_lote * (arancel_pct / 100)
+seguro_total           = valor_fob_lote * (seguro_pct / 100)
+costes_fijos_logistica = despacho_fijo_eur + costes_portuarios_eur + transporte_interno_eur
 
 # IVA + Recargo de Equivalencia en aduanas — ambos son COSTE no recuperable para RE
-base_iva_re       = valor_fob_lote + arancel_total          # base imponible en aduana
-iva_importacion   = base_iva_re * (iva_pct / 100)           # IVA (21%) pagado en aduana
-re_importacion    = base_iva_re * (re_pct / 100)            # Recargo Equivalencia pagado en aduana
+base_iva_re     = valor_fob_lote + arancel_total
+iva_importacion = base_iva_re * (iva_pct / 100)
+re_importacion  = base_iva_re * (re_pct  / 100)
 
-logistica_total       = flete_total + arancel_total + seguro_total + costes_fijos_logistica + iva_importacion + re_importacion
-coste_logistica_ud    = logistica_total / moq
+logistica_total    = (flete_total + arancel_total + seguro_total
+                      + costes_fijos_logistica + iva_importacion + re_importacion)
+coste_logistica_ud = logistica_total / moq
 
-# En RE el autónomo cobra IVA al cliente y se lo queda → ingreso real = PVP completo
-pvp_neto       = pvp                                        # PVP íntegro = base de todos los cálculos
-comision_amazon= pvp * (comision_pct / 100)                 # Amazon cobra % sobre precio total
+# En RE el autónomo cobra IVA al cliente y se lo queda → ingreso real = PVP completo (EUR)
+pvp_neto       = pvp                          # PVP íntegro = base de todos los cálculos
+comision_amazon= pvp * (comision_pct / 100)   # Amazon cobra % sobre precio total
 coste_dev_ud   = (devolucion_pct / 100) * coste_devolucion
 coste_amazon_ud= comision_amazon + coste_fba + almacenamiento_mes + coste_dev_ud
 
@@ -656,10 +747,10 @@ beneficio_neto_ud   = beneficio_bruto_ud - impuesto_ud
 margen_neto_real_pct= (beneficio_neto_ud / pvp_neto * 100) if pvp_neto > 0 else 0
 
 beneficio_total_lote= beneficio_neto_ud * moq
-inversion_total     = (coste_unitario + coste_packaging) * moq + logistica_total + coste_inspeccion + coste_agente
+inversion_total     = (coste_unitario_eur + coste_packaging_eur) * moq + logistica_total + coste_inspeccion_eur + coste_agente_eur
 roi_pct             = (beneficio_total_lote / inversion_total * 100) if inversion_total > 0 else 0
 
-costes_fijos_lote  = costes_fijos_logistica + coste_inspeccion + coste_agente
+costes_fijos_lote  = costes_fijos_logistica + coste_inspeccion_eur + coste_agente_eur
 margen_contribucion= pvp_neto - (
     coste_prod_ud
     + (coste_logistica_ud - costes_fijos_lote / moq)
@@ -846,9 +937,9 @@ with tab2:
             {"Concepto": "Flete internacional",              "EUR lote": f"€{flete_total:,.2f}"},
             {"Concepto": "Aranceles aduaneros",              "EUR lote": f"€{arancel_total:,.2f}"},
             {"Concepto": "Seguro transporte",                "EUR lote": f"€{seguro_total:,.2f}"},
-            {"Concepto": "Despacho aduanero",                "EUR lote": f"€{despacho_fijo:,.2f}"},
-            {"Concepto": "Costes portuarios",                "EUR lote": f"€{costes_portuarios:,.2f}"},
-            {"Concepto": "Transporte interno",               "EUR lote": f"€{transporte_interno:,.2f}"},
+            {"Concepto": "Despacho aduanero",                "EUR lote": f"€{despacho_fijo_eur:,.2f}"},
+            {"Concepto": "Costes portuarios",                "EUR lote": f"€{costes_portuarios_eur:,.2f}"},
+            {"Concepto": "Transporte interno",               "EUR lote": f"€{transporte_interno_eur:,.2f}"},
             {"Concepto": "IVA importación 🔴 no recuperable","EUR lote": f"€{iva_importacion:,.2f}"},
             {"Concepto": "Recargo equiv. 🔴 no recuperable", "EUR lote": f"€{re_importacion:,.2f}"},
             {"Concepto": "TOTAL LOGÍSTICA LOTE",             "EUR lote": f"€{logistica_total:,.2f}"},
@@ -924,17 +1015,17 @@ with tab3:
     st.caption("Los escenarios ajustan PVP, CPC, conversión y logística respecto al caso base.")
 
     def calcular_escenario(pvp_s, cpc_s, conv_s, log_factor):
-        pvp_n  = pvp_s / (1 + iva_pct / 100)
+        pvp_n  = pvp_s                                         # RE: ingreso real = PVP completo (IVA incluido)
         log_ud = coste_logistica_ud * log_factor
         ads_ud = cpc_s / (conv_s / 100)
-        amz_ud = pvp_n * (comision_pct / 100) + coste_fba + almacenamiento_mes + coste_dev_ud
+        amz_ud = pvp_s * (comision_pct / 100) + coste_fba + almacenamiento_mes + coste_dev_ud  # comisión sobre PVP c/IVA
         total  = coste_prod_ud + log_ud + amz_ud + ads_ud
         ben    = pvp_n - total
         margen = (ben / pvp_n * 100) if pvp_n > 0 else 0
         acos_s = (ads_ud / pvp_n * 100) if pvp_n > 0 else 0
         ben_net= ben - max(0, ben * impuesto_pct / 100)
         b_lote = ben_net * moq
-        inv    = (coste_unitario + coste_packaging) * moq + logistica_total * log_factor + coste_inspeccion + coste_agente
+        inv    = (coste_unitario_eur + coste_packaging_eur) * moq + logistica_total * log_factor + coste_inspeccion_eur + coste_agente_eur
         roi_s  = (b_lote / inv * 100) if inv > 0 else 0
         dec    = "LANZAR" if margen >= 20 and roi_s >= 50 else ("AJUSTAR" if margen >= 10 else "NO LANZAR")
         return dict(
@@ -1064,8 +1155,8 @@ with tab4:
         pvps_r = np.linspace(pvp * 0.65, pvp * 1.45, 60)
         marg_pvp = []
         for p in pvps_r:
-            pn  = p / (1 + iva_pct / 100)
-            amz = pn * (comision_pct / 100) + coste_fba + almacenamiento_mes + coste_dev_ud
+            pn  = p                                            # RE: ingreso real = PVP completo
+            amz = p * (comision_pct / 100) + coste_fba + almacenamiento_mes + coste_dev_ud  # comisión sobre PVP c/IVA
             ben = pn - (coste_prod_ud + coste_logistica_ud + amz + coste_ads_ud)
             marg_pvp.append(ben / pn * 100 if pn else 0)
 
@@ -1169,7 +1260,7 @@ with tab5:
     st.divider()
     st.markdown("<div class='section-label'>Errores típicos a evitar</div>", unsafe_allow_html=True)
     for titulo, desc in [
-        ("IVA en el PVP",              "Trabaja siempre con PVP sin IVA. El IVA no es ingreso tuyo."),
+        ("IVA en el PVP",              "En RE el IVA cobrado al cliente ES tuyo (ingreso real = PVP íntegro). Pero el IVA+RE pagado en aduanas es coste no recuperable."),
         ("CPC optimista",              "Valida el CPC real con Helium10 o JungleScout antes de proyectar."),
         ("Peso volumétrico ignorado",  "El transitario factura por max(peso real, peso vol). Mide la caja real."),
         ("Aranceles desconocidos",     "Verifica el código HS antes de encargar. Pueden ser 0–45%."),
