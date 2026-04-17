@@ -76,6 +76,8 @@ DEFAULTS = {
     "p_cpc":                0.55,    # € EUR
     "p_conversion_pct":     12.0,    # %
     "p_presupuesto_diario": 15.0,    # € EUR
+    # ── Certificación / Homologación (pago único, € EUR) ─
+    "p_certificacion":      0.0,     # € EUR (pago único)
     # ── Fiscal ───────────────────────────────────
     "p_iva_pct":            21.0,
     "p_re_pct":             5.2,
@@ -646,6 +648,19 @@ with st.sidebar:
         transporte_interno= st.slider("Transporte interno ($ USD)", 0.0, 800.0,
                               step=10.0, key="p_transporte_interno")
 
+    with st.expander("📋 Certificación / Homologación — € EUR"):
+        st.markdown(
+            f"<div style='font-size:0.8rem;color:{TEXT_MUTED};line-height:1.5;"
+            f"background:{rgba(ACCENT,0.07)};border-radius:10px;padding:10px 12px;"
+            f"margin-bottom:10px;border-left:3px solid {ACCENT}'>"
+            f"Pago único al inicio. Se amortiza sobre el lote (÷ MOQ) para el coste/ud."
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+        coste_certificacion = st.slider("Certificación / Homologación (€ EUR)", 0.0, 10000.0,
+                              step=50.0, key="p_certificacion",
+                              help="Ensayos, CE, marcado de juguetes, etc. Pago único.")
+
     with st.expander("🛒 Amazon"):
         pvp               = st.slider("PVP (EUR)", 5.0, 200.0,
                               step=0.50, key="p_pvp")
@@ -739,7 +754,9 @@ clics_diarios    = presupuesto_diario / cpc
 ventas_diarias   = clics_diarios * (conversion_pct / 100)
 ventas_mensuales = ventas_diarias * 30
 
-coste_total_ud      = coste_prod_ud + coste_logistica_ud + coste_amazon_ud + coste_ads_ud
+certificacion_ud    = coste_certificacion / moq if moq > 0 else 0
+
+coste_total_ud      = coste_prod_ud + coste_logistica_ud + coste_amazon_ud + coste_ads_ud + certificacion_ud
 beneficio_bruto_ud  = pvp_neto - coste_total_ud
 margen_neto_pct     = (beneficio_bruto_ud / pvp_neto * 100) if pvp_neto > 0 else 0
 impuesto_ud         = max(0, beneficio_bruto_ud * (impuesto_pct / 100))
@@ -747,14 +764,14 @@ beneficio_neto_ud   = beneficio_bruto_ud - impuesto_ud
 margen_neto_real_pct= (beneficio_neto_ud / pvp_neto * 100) if pvp_neto > 0 else 0
 
 beneficio_total_lote= beneficio_neto_ud * moq
-inversion_total     = (coste_unitario_eur + coste_packaging_eur) * moq + logistica_total + coste_inspeccion_eur + coste_agente_eur
+inversion_total     = (coste_unitario_eur + coste_packaging_eur) * moq + logistica_total + coste_inspeccion_eur + coste_agente_eur + coste_certificacion
 roi_pct             = (beneficio_total_lote / inversion_total * 100) if inversion_total > 0 else 0
 
-costes_fijos_lote  = costes_fijos_logistica + coste_inspeccion_eur + coste_agente_eur
+costes_fijos_lote  = costes_fijos_logistica + coste_inspeccion_eur + coste_agente_eur + coste_certificacion
 margen_contribucion= pvp_neto - (
     coste_prod_ud
     + (coste_logistica_ud - costes_fijos_lote / moq)
-    + coste_amazon_ud + coste_ads_ud
+    + coste_amazon_ud + coste_ads_ud + certificacion_ud
 )
 break_even_uds = int(np.ceil(costes_fijos_lote / margen_contribucion)) if margen_contribucion > 0 else None
 dias_retorno   = (moq / ventas_diarias) if ventas_diarias > 0 else None
@@ -838,6 +855,8 @@ with tab1:
              "EUR / ud": f"{coste_amz_rest:.3f}",           "% PVP": pct(coste_amz_rest)},
             {"Concepto": "Publicidad (ads)",
              "EUR / ud": f"{coste_ads_ud:.3f}",             "% PVP": pct(coste_ads_ud)},
+            {"Concepto": "Certificación / homologación (amort.)",
+             "EUR / ud": f"{certificacion_ud:.3f}",         "% PVP": pct(certificacion_ud)},
             {"Concepto": "COSTE TOTAL",
              "EUR / ud": f"{coste_total_ud:.3f}",           "% PVP": pct(coste_total_ud)},
             {"Concepto": "PVP (ingreso real RE, IVA incluido)",
@@ -850,23 +869,24 @@ with tab1:
              "EUR / ud": f"{beneficio_neto_ud:+.3f}",       "% PVP": pct(beneficio_neto_ud)},
         ]
         hl_costes = {
-            7: "warn",
-            11: "ok" if beneficio_neto_ud > 0 else "bad",
+            8: "warn",
+            12: "ok" if beneficio_neto_ud > 0 else "bad",
         }
         st.markdown(html_table(rows_costes, hl_costes), unsafe_allow_html=True)
 
     with col_b:
         st.markdown("<div class='section-label'>Distribución del PVP (ingreso real RE)</div>", unsafe_allow_html=True)
-        pie_labels = ["Producto", "Logística", "Comisión Amazon", "FBA/Almacén/Devol.", "Publicidad", "Beneficio neto"]
+        pie_labels = ["Producto", "Logística", "Comisión Amazon", "FBA/Almacén/Devol.", "Publicidad", "Certificación", "Beneficio neto"]
         pie_values = [
             max(0, coste_prod_ud / pvp_neto * 100) if pvp_neto else 0,
             max(0, coste_logistica_ud / pvp_neto * 100) if pvp_neto else 0,
             max(0, comision_amazon / pvp_neto * 100) if pvp_neto else 0,
             max(0, coste_amz_rest / pvp_neto * 100) if pvp_neto else 0,
             max(0, coste_ads_ud / pvp_neto * 100) if pvp_neto else 0,
+            max(0, certificacion_ud / pvp_neto * 100) if pvp_neto else 0,
             max(0, beneficio_neto_ud / pvp_neto * 100) if pvp_neto else 0,
         ]
-        pie_colors = [ACCENT, "#f28e2b", DANGER, "#06b6d4", "#8b5cf6", ACCENT2]
+        pie_colors = [ACCENT, "#f28e2b", DANGER, "#06b6d4", "#8b5cf6", "#ec4899", ACCENT2]
         fig_pie = go.Figure(data=[go.Pie(
             labels=pie_labels,
             values=pie_values,
